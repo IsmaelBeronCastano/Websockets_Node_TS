@@ -134,10 +134,234 @@ ws.on('close', ()=> console.log("client disconnected"))
 - Si bajo el servidor dice disconnected
 - Si lo vuelvo a levantar no dice Connected
 - Tengo que programar ese mecanismo
-- El webscoket que he creado en el script del html le faltan ciertas características que optras librerías hacen por nosotros
+- El webscoket que he creado en el script del html le faltan ciertas características que otras librerías hacen por nosotros
 - Eso no significa que no lo podamos implementar
 -------
 
 ## Enviar mensajes al servidor
 
+- Quiero usar el 'message' del ws.on (cliente websocket) que hay en el server
+- Es decir, cuando el websocket emita un mensaje quiero ejecutar el console.log que tiene 
+- Si quisera mandar binarios, strings, información usaría isBinary como segundo parámetro 
+
+~~~js
+ ws.on('message', function message(data, isBinary) {
+    console.log('received: %s', data);
+  });
+~~~
+
+- Voy al index.html a la etiqueta script
+
+~~~html
+<script>
+  const socket = new WebSocket('ws://localhost:3000')
+   
+    const form = document.querySelector( 'form' ); //capturo el form
+    const input = document.querySelector( 'input' ); //capturo el input
+
+
+    function sendMessage( message ) {
+      console.log({message})
+    }
+
+  //añado un listener al form para cuando le dé al botón pasarle a sendMessage el valor del input
+    form.addEventListener('submit', event=>{
+      event.preventDefault() //siempre para prevenir la recarga de la página
+      const message = input.value
+      sendMessage(message)
+    })
+  
+</script>
+~~~
+
+- Si ahora escribo en el input del navegador Hola mundo me lo devuelve en consola
+- Puedo verificar (sería necesario) que el message venga con algo con un if y message.length
+- Si quiero mandar un m ensaje uso el socket.send(data)
+
+~~~js
+    function sendMessage( message ) {
+      socket.send(message)
+    }
+~~~
+
+- Este message cae en el ws.on('message') del server
+
+~~~js
+import { WebSocketServer } from 'ws';
+
+const wss = new WebSocketServer({ port: 3000 });
+
+wss.on('connection', function connection(ws) {
+
+  console.log("client connected")
+  
+  ws.on('error', console.error);
+
+  //cae aquí!! porque ws es el cliente
+  ws.on('message', function message(data) {
+    console.log('received: %s', data);
+    //TODO:enviar la data de regreso al cliente
+  });
+
+  ws.send('hola desde el server');
+});
+~~~
+
+- Con socket.io yo puedo escuchar mensajes personalizados
+- Al usar ws que viene de forma nativa, solo puedo usar el 'message' desde el server
+- Desde el index.html si pongo socket.on tengo onclose, onerror, onmessage, onopen
+- Si quiero mandar diferente info o diferentes eventos habrá que ingeniárselas para recibirlo
+- Para enviar la data de regreso al cliente uso ws.send en el server
+
+~~~js
+import { WebSocketServer } from 'ws';
+
+const wss = new WebSocketServer({ port: 3000 });
+
+wss.on('connection', function connection(ws) {
+
+  console.log("client connected")
+  
+  ws.on('error', console.error);
+
+  
+  ws.on('message', function message(data) {
+    console.log('received: %s', data);
+  ws.send(data.toString().toUpperCase()) //Le devolveré lo que sea que me escribió pero en mayúsculas
+});
+
+  ws.send('hola desde el server');
+});
+~~~
+
+- En el cliente (index.html)
+- Si hago un console.log del event (en socket.onmessage) recibo un MessageEvent con mucha info
+- Solo quiero la data que hay internamente, que se encuentra en el prototype/data
+
+~~~html
+<script>
+  const socket = new WebSocket('ws://localhost:3000')
+   
+    const form = document.querySelector( 'form' ); //capturo el form
+    const input = document.querySelector( 'input' ); //capturo el input
+
+
+    function sendMessage( message ) {
+      console.log({message})
+    }
+
+    form.addEventListener('submit', event=>{
+      event.preventDefault() 
+      const message = input.value
+      sendMessage(message)
+    })
+
+    socket.onmessage=(event)=>{
+      //console.log(event.data)
+
+    }
+  
+</script>
+~~~
+
+- Lo que sea que escriba en el input del navegador lo recibo en consola en mayúsculas
+- Lo que quiero es que este mensaje lo reciban también otras personas (chat), pero esto es lo que tengo hasta ahora
+- Suponiendo que quisiera mandar un objeto como payload desde el server, para que no de error debo serializarlo con stringify
+
+~~~js
+ ws.on('message', function message(data) {
+    console.log('received: %s', data);
+
+    const payload = {
+      type: "custom-message",
+      payload: data.toString()
+    }
+  //ws.send(payload) esto devuelve error porque no es bufferLike
+  ws.send( JSON.stringify(payload))
+ })
+~~~
+
+- En el cliente (index.html) lo parseo
+
+~~~html
+<script>
+  socket.onmessage=(event)=>{
+       //console.log(event.data)
+
+      const payload = JSON.parse(event.data)
+      console.log(payload)
+</script>
+}
+~~~
+
+- Entonces, necesito usar stringify para mandarle la data al cliente que se conecto y usare parse para recibirlo desde el cliente
+- Creemos un método para insertar en pantalla los mensajes que vamos recibiendo de vuelta del server
+
+~~~html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+
+<body>
+  <h1>Websockets - <small>Status</small></h1>
+
+
+  <form>
+    <input type="text" placeholder="Enviar mensaje" />
+    <button>Enviar</button>
+  </form>
+
+  <ul id="messages">
+
+  </ul>
+
+
+  <script>
+    let socket = null;
+
+    const form = document.querySelector( 'form' );
+    const input = document.querySelector( 'input' );
+    const messagesElem = document.querySelector( '#messages' ); //tomo el ul por el id
+
+    function sendMessage( message ) {
+      socket?.send( message );
+    }
+
+  //para renderizar los mensajes
+    function renderMessage( message ) {
+      const li = document.createElement( 'li' ); //creo el list item
+      li.innerHTML = message; //lo meto como contenido del li
+      messagesElem.prepend( li ); //uso prepend porque quiero los primeros mensajes arriba (de lo contrario usaría append)
+    }
+
+    form.addEventListener( 'submit', ( event ) => {
+      event.preventDefault();
+      const message = input.value;
+      sendMessage( message );
+     
+    } );
+
+      socket.onmessage = ( event ) => {
+        const { payload } = JSON.parse( event.data ); //desestructuro el payload
+
+        renderMessage( payload ); //s el o paso al método para que lo renderice
+      };
+
+  </script>
+
+</body>
+
+</html>
+~~~
+---------
+
+## Server Broadcast
+
+- Queremos mandarle el mensaje a otras personas
 - 
+
