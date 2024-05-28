@@ -363,5 +363,174 @@ wss.on('connection', function connection(ws) {
 ## Server Broadcast
 
 - Queremos mandarle el mensaje a otras personas
-- 
+- Creo otra instancia del navegador web
+- Server Broadcast: Si queremos que el servidor emita a todo el mundo cuando un cliente WebSocket envíe data, incluso a si mismo
+- La magia sucede aquí
 
+~~~js
+import {WebSocketServer, WebSocket} from 'ws'
+
+(..codigo del server)
+
+ws.on('message', function message(data, isBinary){ //podría tener solo la data y mandar el binary en false en el client.send
+  
+  const payload = JSON.stringify({
+    type: 'custom-message',
+    payload: data.toString()
+  })
+  
+  wss.clients.forEach(function each(client){
+    if (client.readyState === WebSocket.OPEN){ //si el readyState está abierto vamos a mandar la data 
+      client.send(payload, {binary: isBinary}) //binary: false
+    }
+  })
+})
+~~~
+
+- En cualquiera de las dos instancias del navegador que escriba se va a mostrar el mensaje en las dos pantallas
+----
+
+## Client Broadcast - A tod@s menos al emisor
+
+- Para enviar a todos menos al emisor hago una evaluación de quién está emitiendo
+- Si quien emite es el mismo que el cliente ws entonces no recibirá el mensaje
+
+~~~js
+import { WebSocketServer, WebSocket } from 'ws';
+
+
+
+const wss = new WebSocketServer({ port: 3000 });
+
+wss.on('connection', function connection(ws) {
+
+
+  console.log('Client connected');
+
+  ws.on('error', console.error);
+
+  ws.on('message', function message(data) {
+
+    const payload = JSON.stringify({
+      type: 'custom-message',
+      payload: data.toString(),
+    })
+    // ws.send( JSON.stringify(payload) );
+
+    //* Todos - incluyente
+    // wss.clients.forEach(function each(client) {
+    //   if (client.readyState === WebSocket.OPEN) {
+    //     client.send(payload, { binary: false });
+    //   }
+    // });
+
+    // * Todos excluyente
+    wss.clients.forEach(function each(client) {
+      if (client !== ws && client.readyState === WebSocket.OPEN) { //si el cliente es diferente a ws (el emisor) y tiene el WebSocket abierto le envío la data
+        client.send(payload, { binary: false });
+      }
+    });
+    
+
+  });
+
+  // ws.send('Hola desde el servidor!');
+
+  ws.on('close', () => {
+    console.log('Client disconnected');
+  })
+
+});
+
+
+console.log('http://localhost:3000');
+~~~
+----
+
+## Reconexión
+
+- Con ws (WebSockets de forma nativa) no viene nada para la reconexión por lo que será puro ingenio
+- Por este motivo hay personas que optan por librerías en la parte del cliente
+- En public/ index.html
+
+~~~html
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Document</title>
+</head>
+
+<body>
+  <h1>Websockets - <small>Status</small></h1>
+
+
+  <form>
+    <input type="text" placeholder="Enviar mensaje" />
+    <button>Enviar</button>
+  </form>
+
+  <ul id="messages">
+
+  </ul>
+
+
+  <script>
+    let socket = null;
+
+    const form = document.querySelector( 'form' );
+    const input = document.querySelector( 'input' );
+    const messagesElem = document.querySelector( '#messages' );
+    const statusElem = document.querySelector('small'); //mostraré en pantalla si estoy online u offline
+
+    function sendMessage( message ) {
+      socket?.send( message );
+    }
+
+    function renderMessage( message ) {
+      const li = document.createElement( 'li' );
+      li.innerHTML = message;
+      messagesElem.prepend( li );
+    }
+
+    form.addEventListener( 'submit', ( event ) => {
+      event.preventDefault();
+      const message = input.value;
+      sendMessage( message );
+      input.value = null;
+    } );
+
+    //Creo la función para conectar al server
+    function connectToServer() {
+      socket = new WebSocket( 'ws://localhost:3000' );
+
+      socket.onopen = ( event ) => {
+        statusElem.innerText = 'Online';
+      };
+
+      //con onclose yo se cuando se pierde la conexión
+      socket.onclose = ( event ) => {
+        statusElem.innerText = 'Offline';
+        setTimeout(() => {      //le doy un tiempo de gracia para reconectar
+          connectToServer();
+        }, 1500); //le doy un segundo y medio
+      };
+
+      socket.onmessage = ( event ) => {
+        const { payload } = JSON.parse( event.data );
+
+        renderMessage( payload );
+      };
+
+    }
+
+    connectToServer(); //mando llamar a la función
+
+  </script>
+
+</body>
+
+</html>
+~~~
